@@ -1,0 +1,34 @@
+{
+  "name": "type-alias",
+  "version": "0.0.1",
+  "description": "Give another name to existing Javascript type and describe the shape",
+  "main": "type-alias.js",
+  "directories": {
+    "test": "test"
+  },
+  "devDependencies": {
+    "babel": "^5.8.21",
+    "browserify": "^10.2.4",
+    "mkdirp": "^0.5.1",
+    "mocha": "^2.3.4"
+  },
+  "scripts": {
+    "prebuild": "mkdirp dist",
+    "build": "browserify -s TypeAlias ./type-alias.js -o dist/type-alias.js",
+    "test": "mocha --compilers js:babel/register"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/syaiful6/type-alias.git"
+  },
+  "keywords": [
+    "type alias",
+    "type"
+  ],
+  "author": "Syaiful Bahri",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/syaiful6/type-alias/issues"
+  },
+  "homepage": "https://github.com/syaiful6/type-alias#readme"
+}
