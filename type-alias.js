@@ -57,6 +57,16 @@ function extractValues(keys, obj) {
   return arr;
 }
 
+function extractValuesRecord(keys, validators, obj) {
+  var arr = [], i
+  for (i = 0; i < keys.length; i++) {
+    arr[i] = typeof validators[i].read === 'function'
+      ? validators[i].read(obj[keys[i]])
+      : obj[keys[i]]
+  }
+  return arr
+}
+
 function range(lo, hi) {
   var arr = []
   for (var i = lo; i < hi; i++) {
@@ -198,6 +208,19 @@ function ListOfAlias(raw) {
     }
     return true
   }
+  function read(v) {
+    if (arguments.length < 1) return read
+    if (!isArray(v)) {
+      throw new Error(
+        'error when trying to read source for ' + ListOfAlias.aliasType
+        + 'because it\'s not an Array.'
+      )
+    }
+    function reader(val) {
+      return typeof internalType.read === 'function' ? internalType.read(val) : val
+    }
+    return v.map(reader)
+  }
   Object.defineProperty(ListType, 'aliasType', {
     configurable: false
     , enumerable: false
@@ -228,7 +251,7 @@ function RecordAlias(descriptions) {
   }
   function read(obj) {
     if (arguments.length < 1) return read
-    return create.apply(null, extractValues(keys, obj))
+    return create.apply(null, extractValuesRecord(keys, validators, obj))
   }
   Record.create = create
   Record.read = read

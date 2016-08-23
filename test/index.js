@@ -166,5 +166,27 @@ describe('Type alias', function () {
         })
       }, TypeError)
     })
+    it('can read object source to correct shape', function () {
+      var Location = Alias(String)
+      var Person = Alias({
+        name: Name,
+        location: Location
+      })
+      var PhoneBook = Alias({
+        owner: Person,
+        phone: Phone
+      })
+      assert.doesNotThrow(function () {
+        var results = PhoneBook.read({
+          owner: {
+            name: 'Betty',
+            location: 'somewhere',
+            more: 'more field'
+          },
+          phone: '0099211'
+        })
+        assert(results.owner.more == null)
+      }, TypeError)
+    })
   })
 })
