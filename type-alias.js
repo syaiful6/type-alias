@@ -1,3 +1,7 @@
+'use strict';
+
+var slice = Array.prototype.slice
+
 var isString = function(s) { return typeof s === 'string'; };
 var isNumber = function(n) { return typeof n === 'number'; };
 var isBoolean = function(b) { return typeof b === 'boolean'; };
@@ -7,30 +11,28 @@ var isObject = function(value) {
 };
 var isFunction = function(f) { return typeof f === 'function'; };
 var isArray = Array.isArray || function(a) { return 'length' in a; };
-// our is just accept one arity, so Immutable.is and Object.is will never pass this
-// test
-function isAlias(v) {
-  return typeof v.is === 'function' && v.is.length === 1
-}
+var isTuple = function (v) { return isArray(v) && v.length > 1; };
+var isListOf = function (v) { return isArray(v) && v.length === 1; }
 
+var isPrimitive = function (v) {
+  return v === String || v === Number || v === Boolean || v === Function || isString(v) || isNumber(v) || isBoolean(v) || isFunction(v)
+}
 function selfCurry(fun, args, context) {
-  return fun.bind.apply(fun, [context || this].concat([].slice.call(args)))
+  return fun.bind.apply(fun, [context || this].concat(slice.call(args)))
 }
-
 var mapConstrToFn = function (constr) {
   return constr === String    ? isString
        : constr === Number    ? isNumber
        : constr === Boolean   ? isBoolean
        : constr === Object    ? isObject
        : constr === Array     ? isArray
-       : isAlias(constr) ? constr.is
        : constr === Function  ? isFunction
        : constr
 }
-
 var mapConstrToStr = function (constrOrValue) {
-  var info = typeof constrOrValue === 'function' && constrOrValue.name !== '' && !isAlias(constrOrValue) ? constrOrValue.name // our constructor have name
-    : typeof constrOrValue === 'function' && constrOrValue._name !== ''  ? constrOrValue._name
+  return constrOrValue.aliasType != null ? constrOrValue.aliasType // our constructor have name
+    : typeof constrOrValue === 'function' && constrOrValue._name != null  ? constrOrValue._name
+    : typeof constrOrValue === 'function' && constrOrValue.name !== '' ? constrOrValue.name
     : isString(constrOrValue) ? 'String'
     : isNumber(constrOrValue) ? 'Number'
     : isBoolean(constrOrValue) ? 'Boolean'
@@ -38,14 +40,12 @@ var mapConstrToStr = function (constrOrValue) {
     : isFunction(constrOrValue) ? 'Function'
     : isObject(constrOrValue) ? 'Object'
     : Object.prototype.toString.call(constrOrValue)
-  return info
 }
 
 var numToStr = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth']
 
 function getTypeAsString(keys, value, type) {
   var typeMapStr = {
-    primitive: showPrimitive,
     Array: showArray,
     Record: showRecord
   }
@@ -57,7 +57,7 @@ function validate(keys, validators, args, type) {
   if (keys.length !== args.length) {
     expectedType = getTypeAsString(keys, validators, type)
     actualValue = getTypeAsString(keys, args, type)
-    errorMsg = 'too many arguments supplied to type alias constructor. Expected '
+    errorMsg = 'too many arguments supplied to type alias create method. Expected '
       + keys.length + ', but got ' + args.length + '. I expect it to be ' + expectedType
       + ', but i see it will just make ' + actualValue
     throw new TypeError(errorMsg)
@@ -70,7 +70,7 @@ function validate(keys, validators, args, type) {
       var strVal = typeof v === 'string' ? "'" + v + "'" : v
       expectedType = getTypeAsString(keys, validators, type)
       actualValue = getTypeAsString(keys, args, type)
-      errorMsg = 'bad value ' + strVal + ' passed as ' + numToStr[i] + ' argument to type alias constructor, '
+      errorMsg = 'bad value ' + strVal + ' passed as ' + numToStr[i] + ' argument to type alias create method, '
         + 'I expect this value to be ' + mapConstrToStr(validators[i]) + ', but i got ' + mapConstrToStr(args[i])
         + ' instead, your type alias is ' + expectedType + ', but it will make ' + actualValue
       if (type === 'Record') errorMsg += ', it\'s mean the property ' + keys[i] + ' was given wrong type.'
@@ -102,13 +102,17 @@ function extractValues(keys, obj) {
   return arr;
 }
 
-function showPrimitive(_, args) {
-  return mapConstrToStr(args[0])
+function range(lo, hi) {
+  var arr = []
+  for (var i = lo; i < hi; i++) {
+    arr.push(i)
+  }
+  return arr
 }
 
 function showArray(_, args) {
   var content = args.map(mapConstrToStr)
-  return '[' + args.join(', ') + ']'
+  return '[' + content.join(', ') + ']'
 }
 
 function showRecord(keys, args) {
@@ -119,46 +123,134 @@ function showRecord(keys, args) {
   return '{' + content.join(', ') + '}'
 }
 
-function getTypeAliasName(descriptions) {
-  return typeof descriptions === 'function' ? 'primitive'
-         : isArray(descriptions) ? 'Array'
-         : 'Record'
+function multiDispatch(fun) {
+  var implementations = []
+  function wrapper() {
+    if (arguments.length < 1) return selfCurry(wrapper, arguments)
+    return implementations.length > 0 && implementations[0].apply(this, slice.call(arguments))
+      ? implementations[1].apply(this, slice.call(arguments))
+      : fun.apply(this, arguments)
+  }
+  function register(predicate, f) {
+    implementations = [predicate, f]
+    return multiDispatch(wrapper)
+  }
+  wrapper.register = register
+  return wrapper
 }
 
-function Alias(descriptions) {
-  if (arguments.length < 1) return selfCurry(Alias, arguments)
-  var primitive = typeof descriptions === 'function',
-    keys = !primitive ? Object.keys(descriptions) : [descriptions],
-    validators = isArray(descriptions) ? descriptions
-                : primitive ? [descriptions]
-                : extractValues(keys, descriptions)
-  function Construct() {
-    if (arguments.length < keys.length) return selfCurry(Construct, arguments)
+function PrimitiveAlias(realType) {
+  var validator = mapConstrToFn(realType)
+  function Basic(v) {
+    return validator(v)
+  }
+  Object.defineProperty(Basic, 'aliasType', {
+    configurable: false
+    , enumerable: false
+    , get: function () {
+      return mapConstrToStr(realType)
+    }
+  })
+  return Basic
+}
+
+function TupleAlias(descriptions) {
+  var keys = range(0, descriptions.length),
+    validators = descriptions
+  function Tuple(obj) {
+    if (arguments.length < 1) return Tuple
+    if (!isArray(obj)) return false // fast fail
+    return check(keys, validators, obj)
+  }
+  function create() {
+    if (arguments.length < keys.length) return selfCurry(create, arguments)
     var args = [].slice.call(arguments), i
     if (Alias.check === true) {
-      validate(keys, validators, args, getTypeAliasName(descriptions))
+      validate(keys, validators, args, 'Array')
     }
-    if (primitive) return descriptions.apply(null, args)
-    var ret = isArray(descriptions) ? [] : {}
+    return args
+  }
+  Tuple.create = create
+  Object.defineProperty(Tuple, 'aliasType', {
+    configurable: false
+    , enumerable: false
+    , get: function () {
+      return getTypeAsString(keys, validators, 'Array')
+    }
+  })
+  return Tuple
+}
+
+function ListOfAlias(raw) {
+  var type = raw[0], internalType = Alias(type)
+  function ListType(obj) {
+    if (arguments.length < 1) return ListType
+    if (!isArray(obj)) return false
+    var i, len
+    for (i = 0, len = obj.length; i < len; i++) {
+      if (!internalType(obj[i])) return false
+    }
+    return true
+  }
+  Object.defineProperty(ListType, 'aliasType', {
+    configurable: false
+    , enumerable: false
+    , get: function () {
+      return internalType.aliasType + '[]'
+    }
+  })
+  return ListType
+}
+
+function RecordAlias(descriptions) {
+  var keys = Object.keys(descriptions), validators = extractValues(keys, descriptions)
+  function Record(obj) {
+    if (arguments.length < 1) return Record
+    return check(keys, validators, extractValues(Object.keys(obj), obj))
+  }
+  function create() {
+    if (arguments.length < keys.length) return selfCurry(create, arguments)
+    var args = [].slice.call(arguments), i
+    if (Alias.check === true) {
+      validate(keys, validators, args, 'Record')
+    }
+    var record = Object.create(null)
     for (i = 0; i < args.length; i++) {
-      ret[keys[i]] = args[i]
+      record[keys[i]] = args[i]
     }
-    return ret
+    return record
   }
   function read(obj) {
     if (arguments.length < 1) return read
-    return Construct.apply(null, primitive ? [obj] : extractValues(keys, obj))
+    return create.apply(null, extractValues(keys, obj))
   }
-  function is(obj) {
-    if (arguments.length < 1) return is
-    return check(keys, validators, primitive ? [obj] : extractValues(Object.keys(obj), obj))
-  }
-  Construct.is = is
-  Construct.read = read
-  Construct.from = read
-  Construct._length = keys.length
-  Construct._name = getTypeAsString(keys, validators, getTypeAliasName(descriptions))
-  return Construct
+  Record.create = create
+  Record.read = read
+  Record.from = read
+  Object.defineProperty(Record, 'aliasType', {
+    configurable: false
+    , enumerable: false
+    , get: function () {
+      return getTypeAsString(keys, validators, 'Record')
+    }
+  })
+  return Record
+}
+
+function AliasImplNotFound(v) {
+  var strval = mapConstrToStr(v)
+  throw new Error('For now, type alias doesn\'t support ' + strval + '. it\'s mean we can\'t alias this type.')
+}
+
+var InnerAlias = multiDispatch(AliasImplNotFound)
+  .register(isObject, RecordAlias)
+  .register(isListOf, ListOfAlias)
+  .register(isTuple, TupleAlias)
+  .register(isPrimitive, PrimitiveAlias)
+
+// wrap this, prevent the user to register the implementation
+function Alias(v) {
+  return InnerAlias(v)
 }
 
 Alias.check = true

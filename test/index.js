@@ -2,66 +2,52 @@ var assert = require('assert'),
   Alias = require('../type-alias')
 
 describe('Type alias', function () {
-  it('return function constructor for the type alias', function () {
+  it('return function to check the shape of the alias', function () {
     var PhoneBook = Alias([String, String])
     assert.equal('function', typeof PhoneBook)
   })
-  it('calling constructor return the same type', function () {
+  it('returned function return boolean value', function () {
     var PhoneBook = Alias([String, String]) // Alias an Array with shape [String, String]
-    assert(Array.isArray(PhoneBook('betty', '555-222-111')))
+    var shouldBool = PhoneBook(['betty', '555-222-111'])
+    assert('boolean', typeof shouldBool)
   })
-  it('constructor must be curried', function () {
+  it('return true when calling returned function with same shape', function () {
+    var actual = ['betty', '555-222-111'],
+      PhoneBook = Alias([String, String])
+    assert.equal(true, PhoneBook(actual))
+  })
+  it('return false when calling returned function with different shape', function () {
+    var actual = [1, 2],
+      PhoneBook = Alias([String, String])
+    assert.equal(false, PhoneBook(actual))
+  })
+  it('create method must be curried', function () {
     var PhoneBook = Alias([String, String]),
-      hello = PhoneBook('Hello')
+      hello = PhoneBook.create('Hello')
     assert.equal('function', typeof hello)
     var finalize = hello('222-111-222')
     assert.equal('Hello', finalize[0])
     assert.equal('222-111-222', finalize[1])
   })
-  it('throwing an exception when call the constructor with wrong type', function () {
+  it('throwing an exception when call the create method with wrong type', function () {
     var PhoneBook = Alias([String, String])
     assert.throws(function () {
-      PhoneBook(1, 2)
+      PhoneBook.create(1, 2)
     }, TypeError)
-  })
-  it('can create the type alias using .from/read method', function () {
-    var PhoneBook = Alias([String, String]),
-      usingConstructor = PhoneBook('Betty', '222-111-222'),
-      usingFromMethod = PhoneBook.from(['Betty', '222-111-222'])
-      assert.equal(usingConstructor[0], usingFromMethod[0])
-      assert.equal(usingConstructor[1], usingFromMethod[1])
-  })
-  it('return true when calling .is with same shape', function () {
-    var actual = ['betty', '555-222-111'],
-      PhoneBook = Alias([String, String])
-    assert.equal(true, PhoneBook.is(actual))
-  })
-  it('return false when calling .is with different shape', function () {
-    var actual = [1, 2],
-      PhoneBook = Alias([String, String])
-    assert.equal(false, PhoneBook.is(actual))
   })
   describe('primitive type alias', function () {
     it('can alias primitive type', function () {
       var Age = Alias(Number)
-      assert.equal('number', typeof Age(18))
+      assert.equal('boolean', typeof Age(18))
     })
-    it('throwing an exception when call the constructor with wrong type', function () {
-      var Age = Alias(Number)
-      assert.throws(function () {
-        Age('Non Number')
-      }, TypeError)
-    })
-    it('throws an exception when call the constructor with too many arguments', function () {
-      var Age = Alias(Number)
-      assert.throws(function () {
-        Age(19, 20)
-      }, TypeError)
+    it('doesn\'t create method', function () {
+      var Age = Alias(Number), create = Age.create
+      assert.equal(false, typeof create === 'function')
     })
     it('is can check the primitive type', function () {
       var Age = Alias(Number)
-      assert(Age.is(18))
-      assert.equal(false, Age.is('non number'))
+      assert(Age(18))
+      assert.equal(false, Age('non number'))
     })
   })
   describe('Type alias Record', function () {
@@ -69,13 +55,13 @@ describe('Type alias', function () {
       name: String,
       age: Number
     })
-    it('create record/object, when the constructor called', function () {
-      var user = User('Betty', 19)
+    it('return record, when the create method called', function () {
+      var user = User.create('Betty', 19)
       assert.equal('[object Object]', Object.prototype.toString.call(user))
     })
-    it('The constructor\'s arguments are in the order they appear in the type alias declaration', function () {
+    it('Create method\'s arguments are in the order they appear in the type alias declaration', function () {
       // it should User :: String -> Number -> User
-      var user = User('Betty', 19)
+      var user = User.create('Betty', 19)
       assert.equal('Betty', user.name)
       assert.equal(19, user.age)
     })
@@ -88,13 +74,13 @@ describe('Type alias', function () {
         User.read(user)
       }, TypeError)
     })
-    it('.is method return false if the user contains another field', function () {
+    it('calling returned function, return false if the user contains another field', function () {
       var userWithManyFields = {
         name: 'Betty',
         age: 21,
         location: 'somewhere'
       }
-      assert.equal(false, User.is(userWithManyFields))
+      assert.equal(false, User(userWithManyFields))
     })
     it('.read/from only take the field they need for the alias', function () {
       var userWithManyFields = {
@@ -104,7 +90,7 @@ describe('Type alias', function () {
       }
       var user = User.read(userWithManyFields)
       assert.equal('undefined', typeof user['location'])
-      assert(User.is(user))
+      assert(User(user))
     })
   })
   describe('Nesting Type Alias', function () {
@@ -114,10 +100,10 @@ describe('Type alias', function () {
       var PhoneBook = Alias([Name, Phone])
       // check if it successfull create it
       assert.doesNotThrow(function () {
-        PhoneBook('Betty', '555-222-111')
+        PhoneBook.create('Betty', '555-222-111')
       }, TypeError)
     })
-    it('throwing an exception when call the constructor with wrong type', function () {
+    it('throwing an exception when call the create method with wrong type', function () {
       var PhoneBook = Alias({
         name: Name,
         phone: Phone
