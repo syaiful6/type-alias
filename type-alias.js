@@ -1,7 +1,7 @@
 'use strict';
 
+// --- Utility functions --
 var slice = Array.prototype.slice
-
 var isString = function(s) { return typeof s === 'string'; };
 var isNumber = function(n) { return typeof n === 'number'; };
 var isBoolean = function(b) { return typeof b === 'boolean'; };
@@ -13,7 +13,6 @@ var isFunction = function(f) { return typeof f === 'function'; };
 var isArray = Array.isArray || function(a) { return 'length' in a; };
 var isTuple = function (v) { return isArray(v) && v.length > 1; };
 var isListOf = function (v) { return isArray(v) && v.length === 1; }
-
 var isPrimitive = function (v) {
   return v === String || v === Number || v === Boolean || v === Function || isString(v) || isNumber(v) || isBoolean(v) || isFunction(v)
 }
@@ -52,6 +51,49 @@ function getTypeAsString(keys, value, type) {
   return typeMapStr[type](keys, value)
 }
 
+function extractValues(keys, obj) {
+  var arr = [], i;
+  for (i = 0; i < keys.length; ++i) arr[i] = obj[keys[i]];
+  return arr;
+}
+
+function range(lo, hi) {
+  var arr = []
+  for (var i = lo; i < hi; i++) {
+    arr.push(i)
+  }
+  return arr
+}
+
+function showArray(_, args) {
+  var content = args.map(mapConstrToStr)
+  return '[' + content.join(', ') + ']'
+}
+
+function showRecord(keys, args) {
+  var content = [], i
+  for (i = 0; i < keys.length; i++) {
+    content.push(keys[i] + ' :: ' + mapConstrToStr(args[i]))
+  }
+  return '{' + content.join(', ') + '}'
+}
+// one interface for all our Alias implementation. see below how we use it.
+function multiDispatch(fun) {
+  var implementations = []
+  function wrapper() {
+    if (arguments.length < 1) return selfCurry(wrapper, arguments)
+    return implementations.length > 0 && implementations[0].apply(this, slice.call(arguments))
+      ? implementations[1].apply(this, slice.call(arguments))
+      : fun.apply(this, arguments)
+  }
+  function register(predicate, f) {
+    implementations = [predicate, f]
+    return multiDispatch(wrapper)
+  }
+  wrapper.register = register
+  return wrapper
+}
+// --- Validation and Checking --
 function validate(keys, validators, args, type) {
   var i, v, validator, expectedType, actualValue, errorMsg
   if (keys.length !== args.length) {
@@ -96,49 +138,9 @@ function check(keys, validators, args) {
   return true
 }
 
-function extractValues(keys, obj) {
-  var arr = [], i;
-  for (i = 0; i < keys.length; ++i) arr[i] = obj[keys[i]];
-  return arr;
-}
+// --- Alias implementation --
 
-function range(lo, hi) {
-  var arr = []
-  for (var i = lo; i < hi; i++) {
-    arr.push(i)
-  }
-  return arr
-}
-
-function showArray(_, args) {
-  var content = args.map(mapConstrToStr)
-  return '[' + content.join(', ') + ']'
-}
-
-function showRecord(keys, args) {
-  var content = [], i
-  for (i = 0; i < keys.length; i++) {
-    content.push(keys[i] + ' :: ' + mapConstrToStr(args[i]))
-  }
-  return '{' + content.join(', ') + '}'
-}
-
-function multiDispatch(fun) {
-  var implementations = []
-  function wrapper() {
-    if (arguments.length < 1) return selfCurry(wrapper, arguments)
-    return implementations.length > 0 && implementations[0].apply(this, slice.call(arguments))
-      ? implementations[1].apply(this, slice.call(arguments))
-      : fun.apply(this, arguments)
-  }
-  function register(predicate, f) {
-    implementations = [predicate, f]
-    return multiDispatch(wrapper)
-  }
-  wrapper.register = register
-  return wrapper
-}
-
+// Alias implementation for type String | Number | Boolean | Function
 function PrimitiveAlias(realType) {
   var validator = mapConstrToFn(realType)
   function Basic(v) {
@@ -153,7 +155,9 @@ function PrimitiveAlias(realType) {
   })
   return Basic
 }
-
+// Alias implementation for Tuple, that's it, when you write Alias([String, String])
+// note: this implementation only used if your type alias declaration is an array
+// and have members more than 1, if it 1 then we use ListOfAlias
 function TupleAlias(descriptions) {
   var keys = range(0, descriptions.length),
     validators = descriptions
@@ -180,7 +184,9 @@ function TupleAlias(descriptions) {
   })
   return Tuple
 }
-
+// Alias implementation when you write like this: Alias([Number]). It's mean you
+// declare an alias for an array that only contains number inside. Yes, it's mean
+// something like this Number[].
 function ListOfAlias(raw) {
   var type = raw[0], internalType = Alias(type)
   function ListType(obj) {
@@ -201,7 +207,7 @@ function ListOfAlias(raw) {
   })
   return ListType
 }
-
+// Record / Object.
 function RecordAlias(descriptions) {
   var keys = Object.keys(descriptions), validators = extractValues(keys, descriptions)
   function Record(obj) {
@@ -214,7 +220,7 @@ function RecordAlias(descriptions) {
     if (Alias.check === true) {
       validate(keys, validators, args, 'Record')
     }
-    var record = Object.create(null)
+    var record = {}
     for (i = 0; i < args.length; i++) {
       record[keys[i]] = args[i]
     }
@@ -237,11 +243,6 @@ function RecordAlias(descriptions) {
   return Record
 }
 
-function AliasImplNotFound(v) {
-  var strval = mapConstrToStr(v)
-  throw new Error('For now, type alias doesn\'t support ' + strval + '. it\'s mean we can\'t alias this type.')
-}
-
 var InnerAlias = multiDispatch(AliasImplNotFound)
   .register(isObject, RecordAlias)
   .register(isListOf, ListOfAlias)
@@ -251,6 +252,11 @@ var InnerAlias = multiDispatch(AliasImplNotFound)
 // wrap this, prevent the user to register the implementation
 function Alias(v) {
   return InnerAlias(v)
+}
+
+function AliasImplNotFound(v) {
+  var strval = mapConstrToStr(v)
+  throw new Error('For now, type alias doesn\'t support ' + strval + '. it\'s mean we can\'t alias this type.')
 }
 
 Alias.check = true
